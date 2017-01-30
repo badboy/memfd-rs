@@ -7,14 +7,47 @@ use std::io::{self};
 use std::os::unix::io::{RawFd, AsRawFd, IntoRawFd, FromRawFd};
 use std::fmt;
 
+pub struct OpenOptions(MemFdCreateFlag);
+
+impl OpenOptions {
+    pub fn new() -> OpenOptions {
+        OpenOptions(MemFdCreateFlag::empty())
+    }
+
+    pub fn allow_sealing(&mut self, allow_sealing: bool) -> &mut OpenOptions {
+        if allow_sealing {
+            self.0.insert(MFD_ALLOW_SEALING)
+        } else {
+            self.0.remove(MFD_ALLOW_SEALING)
+        }
+        self
+    }
+
+    pub fn close_on_exec(&mut self, cloexec: bool) -> &mut OpenOptions {
+        if cloexec {
+            self.0.insert(MFD_CLOEXEC)
+        } else {
+            self.0.remove(MFD_CLOEXEC)
+        }
+        self
+    }
+
+    pub fn open<S: Into<Vec<u8>>>(&self, name: S) -> io::Result<MemFd> {
+        MemFd::open_with_flags(name.into(), self.0)
+    }
+}
+
 pub struct MemFd {
     file: File,
 }
 
 impl MemFd {
     pub fn create<S: Into<Vec<u8>>>(name: S) -> io::Result<MemFd> {
+        MemFd::open_with_flags(name.into(), MemFdCreateFlag::empty())
+    }
+
+    fn open_with_flags(name: Vec<u8>, flags: MemFdCreateFlag) -> io::Result<MemFd> {
         let name = CString::new(name).unwrap();
-        let flags = MemFdCreateFlag::empty();
         let rawfd = memfd_create(&name, flags)?;
 
         unsafe {
@@ -141,5 +174,13 @@ mod tests {
         fd.set_len(42).unwrap();
 
         assert_eq!(42, fd.seek(SeekFrom::End(0)).unwrap());
+    }
+
+    #[test]
+    fn set_openoptions() {
+        let _fd = OpenOptions::new()
+            .close_on_exec(true)
+            .allow_sealing(true)
+            .open("foobar").unwrap();
     }
 }
